@@ -1,46 +1,67 @@
 #!/bin/bash
 
-# Verify custom rules were created and Falco restarted
-echo "Checking if custom Falco rules were created..."
+# Verify that the user correctly identified the Falco rule loading order
+echo "Checking if you correctly identified the Falco rule loading order..."
 
-# Check if custom rules file exists
-if [ -f "/etc/falco/falco_rules.local.yaml" ]; then
-    echo "✅ Custom Falco rules file created successfully!"
+# Check if the answer file exists
+if [ ! -f "/tmp/rule-order.txt" ]; then
+    echo "❌ Answer file /tmp/rule-order.txt not found"
+    echo "Please create the file with the rule loading order"
+    exit 1
+fi
+
+# Read the user's answer
+USER_ANSWER=$(cat /tmp/rule-order.txt)
+
+# Dynamically extract the expected order from falco.yaml
+# Look for the rules_file section and extract just the filenames in order
+EXPECTED_ORDER=$(awk '
+/^rules_file:/ { in_rules=1; next }
+in_rules && /^[[:space:]]*-[[:space:]]*\// { 
+    gsub(/.*\//, ""); 
+    gsub(/^[[:space:]]*-[[:space:]]*/, ""); 
+    print 
+}
+in_rules && /^[^[:space:]]/ && !/^[[:space:]]*-/ { in_rules=0 }
+' /etc/falco/falco.yaml)
+
+if [ -z "$EXPECTED_ORDER" ]; then
+    echo "❌ Could not extract rule file order from /etc/falco/falco.yaml"
+    echo "Please check if Falco is properly installed"
+    exit 1
+fi
+
+# Clean up whitespace and compare
+USER_CLEAN=$(echo "$USER_ANSWER" | tr -d ' \t' | grep -v '^$')
+EXPECTED_CLEAN=$(echo "$EXPECTED_ORDER" | tr -d ' \t' | grep -v '^$')
+
+if [ "$USER_CLEAN" = "$EXPECTED_CLEAN" ]; then
+    echo "✅ Correct! You identified the proper Falco rule loading order:"
     
-    # Check if the file contains our rule
-    if grep -q "Read sensitive file untrusted" /etc/falco/falco_rules.local.yaml; then
-        echo "✅ Custom rule 'Read sensitive file untrusted' found in rules file"
-    else
-        echo "❌ Custom rule not found in rules file"
-        exit 1
-    fi
+    # Display the actual order from the config
+    echo "$EXPECTED_ORDER" | nl -b a -s ". "
+    echo ""
+    echo "✅ This order allows local rules to override default rules"
+    echo "✅ and maintains proper rule precedence"
 else
-    echo "❌ Custom Falco rules file not found"
+    echo "❌ The rule loading order is not correct"
+    echo ""
+    echo "Your answer:"
+    cat /tmp/rule-order.txt
+    echo ""
+    echo "Expected order (from /etc/falco/falco.yaml):"
+    echo "$EXPECTED_ORDER" | nl -b a -s ". "
+    echo ""
+    echo "Hint: Check the 'rules_file' section in /etc/falco/falco.yaml"
+    echo "or run: sudo falco --dry-run 2>&1 | grep -i loading"
     exit 1
 fi
 
-# Verify the rule validates correctly
-if falco --validate /etc/falco/falco_rules.local.yaml &> /dev/null; then
-    echo "✅ Custom rules file validates successfully"
-else
-    echo "❌ Custom rules file validation failed"
-    exit 1
-fi
-
-# Verify Falco service is still running
+# Verify Falco is still running
 if systemctl is-active --quiet falco; then
     echo "✅ Falco service is running"
 else
-    echo "❌ Falco service is not running"
-    exit 1
-fi
-
-# Check if our custom rule is loaded (this might take a moment after restart)
-sleep 2
-if falco --list 2>/dev/null | grep -q "Read sensitive file untrusted"; then
-    echo "✅ Custom rule is loaded and active"
-else
-    echo "⚠️  Custom rule may still be loading (this is normal)"
+    echo "⚠️  Falco service is not running (this is expected for this step)"
 fi
 
 exit 0

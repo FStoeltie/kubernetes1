@@ -1,101 +1,100 @@
-# Step 2: Understanding Falco Rules
+# Step 2: Understanding Falco Rule Loading Order
 
-Falco uses rules to detect suspicious activity. Let's explore how these rules work.
+Falco reads multiple rule files in a specific order. Understanding this order is crucial for rule management and troubleshooting.
 
-## View Default Falco Configuration
+## Explore the Falco Directory
 
-Falco configuration and rules are stored in `/etc/falco/`. Let's examine the structure:
+Let's look at what files are in the Falco configuration directory:
 
 ```bash
 ls -la /etc/falco/
 ```{{exec}}
 
-## Look at the Main Configuration
+## Find the Main Configuration
 
-Let's examine the main Falco configuration file:
-
-```bash
-cat /etc/falco/falco.yaml | head -30
-```{{exec}}
-
-## Examine Default Rules
-
-Falco comes with many built-in rules. Let's look at some of them:
+Look at the main Falco configuration to understand how rules are loaded:
 
 ```bash
-head -50 /etc/falco/falco_rules.yaml
+grep -n "rules_file" /etc/falco/falco.yaml
 ```{{exec}}
 
-## List All Available Rules
+This shows you which rule files Falco will load and in what order.
 
-Let's see what rules are currently loaded:
+## Examine Rule Files in Detail
+
+Let's check what rule files actually exist:
 
 ```bash
-falco --list | head -20
+ls -la /etc/falco/*.yaml
 ```{{exec}}
 
-## Understanding Rule Structure
+## Check File Timestamps
 
-A typical Falco rule has these components:
-
-- **Rule name**: Unique identifier
-- **Description**: What the rule detects  
-- **Condition**: The logic that triggers the alert
-- **Output**: The alert message format
-- **Priority**: Severity level (DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY)
-
-## Create a Custom Rule
-
-Let's create a simple custom rule to detect when someone reads sensitive files:
+Sometimes the order matters based on when files were created or modified:
 
 ```bash
-sudo tee /etc/falco/falco_rules.local.yaml > /dev/null << 'EOF'
-- rule: Read sensitive file untrusted
-  desc: an attempt to read any sensitive file (e.g. files containing user/password/authentication information)
-  condition: >
-    open_read and sensitive_files and not proc_name_exists_in_list(proc.name, trusted_programs)
-  output: >
-    Sensitive file opened for reading (user=%user.name user_loginuid=%user.loginuid
-    command=%proc.cmdline file=%fd.name parent=%proc.pname pcmdline=%proc.pcmdline gparent=%proc.aname[2])
-  priority: WARNING
-  tags: [filesystem, mitre_credential_access, mitre_discovery]
-
-- list: trusted_programs
-  items: [vi, vim, nano, cat, more, less, emacs]
-
-- list: sensitive_files
-  items: [/etc/passwd, /etc/shadow, /etc/sudoers, /root/.ssh, /home/*/.ssh]
-EOF
+ls -lt /etc/falco/*.yaml
 ```{{exec}}
 
-## Verify the Custom Rule
+## Test Falco's Rule Loading
 
-Check that our custom rule file was created:
+Run Falco in dry-run mode to see exactly which files it processes:
 
 ```bash
-cat /etc/falco/falco_rules.local.yaml
+sudo falco --dry-run 2>&1 | grep -i "loading\|rules"
 ```{{exec}}
 
-## Test Rule Validation
+## Your Task: Discover the Loading Order
 
-Validate that our custom rule is syntactically correct:
+Based on your exploration above, determine the order in which Falco reads rule files.
+
+Write the filenames (just the filename, not the full path) in the correct order from **first to last** into a file called `/tmp/rule-order.txt`.
+
+Each filename should be on its own line, like this:
+```
+first-file.yaml
+second-file.yaml
+third-file.yaml
+```
+
+Create your answer file:
 
 ```bash
-falco --validate /etc/falco/falco_rules.local.yaml
+nano /tmp/rule-order.txt
 ```{{exec}}
 
-## Restart Falco to Load New Rules
+**Hint:** Look carefully at the output from the `grep "rules_file"` command and the `--dry-run` output.
 
-Restart the Falco service to load our new custom rules:
+<details>
+<summary><strong>🔍 Click here if you need help finding the answer</strong></summary>
 
-```bash
-sudo systemctl restart falco
-```{{exec}}
+The rule loading order can be found in the `rules_file` section of `/etc/falco/falco.yaml`. 
 
-Check that Falco restarted successfully:
+Look for a section that looks like this:
+```yaml
+rules_file:
+  - /etc/falco/falco_rules.yaml
+  - /etc/falco/falco_rules.local.yaml  
+  - /etc/falco/k8s_audit_rules.yaml
+```
 
-```bash
-sudo systemctl status falco --no-pager
-```{{exec}}
+The files are loaded in the order they appear in this list. Write just the filenames (without the full path) in your answer file.
 
-**Great!** You've now created a custom Falco rule that will detect when untrusted programs read sensitive files.
+</details>
+
+<details>
+<summary><strong>💡 Click here to see the typical answer (try to solve it yourself first!)</strong></summary>
+
+The typical rule loading order is:
+```
+falco_rules.yaml
+falco_rules.local.yaml
+k8s_audit_rules.yaml
+```
+
+**Why this order matters:**
+- `falco_rules.yaml` contains the default rules
+- `falco_rules.local.yaml` can override or add to the default rules
+- `k8s_audit_rules.yaml` contains Kubernetes-specific audit rules
+
+</details>
