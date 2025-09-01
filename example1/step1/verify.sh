@@ -1,3 +1,5 @@
-!#/bin/bash
+#!/bin/bash
+# simple success script
 
-return
+echo "Script ran successfully!"
+exit 0
